@@ -26,6 +26,7 @@ router.post('/', authenticate, authorize('admin'), (req, res) => {
     });
 });
 
+/*
 router.post('/import', authenticate, authorize('admin'), upload.single('file'), (req, res) => {
   const results = [];
   fs.createReadStream(req.file.path)
@@ -56,5 +57,18 @@ router.post('/import', authenticate, authorize('admin'), upload.single('file'), 
       });
     });
 });
-
+*/
 module.exports = router;
+
+router.put('/:id', authenticate, authorize('admin'), (req, res) => {
+  const { id } = req.params;
+  const { name, category, length_mm, width_mm, effective_width_mm, headlap, under_course_length_mm, gauge_min_mm, gauge_max_mm, hanging_length_mm, bonding_pattern, left_hand_tile_width_mm } = req.body;
+  db.run(
+    'UPDATE tiles SET name = ?, category = ?, length_mm = ?, width_mm = ?, effective_width_mm = ?, headlap = ?, under_course_length_mm = ?, gauge_min_mm = ?, gauge_max_mm = ?, hanging_length_mm = ?, bonding_pattern = ?, left_hand_tile_width_mm = ? WHERE id = ?',
+    [name, category, length_mm, width_mm, effective_width_mm, headlap, under_course_length_mm, gauge_min_mm, gauge_max_mm, hanging_length_mm, bonding_pattern, left_hand_tile_width_mm, id],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.status(200).json({ message: 'Tile updated successfully' });
+    }
+  );
+});
