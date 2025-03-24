@@ -1,51 +1,68 @@
 const express = require('express');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const sqlite3 = require('sqlite3').verbose();
-const config = require('../config');
 const router = express.Router();
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 
-const db = new sqlite3.Database('./roofgrid.db');
+let pool;
+router.setDatabase = (db) => {
+  console.log('Setting database pool in auth routes');
+  pool = db;
+};
 
-router.post('/register', (req, res) => {
-    const { username, password } = req.body;
-    bcrypt.hash(password, 10, (err, hash) => {
-      if (err) return res.status(500).json({ error: err.message });
-      db.run('INSERT INTO users (username, password, role) VALUES (?, ?, ?)', [username, hash, 'user'], function(err) {
-        if (err) return res.status(400).json({ error: 'Username already exists' });
-        res.status(201).json({ id: this.lastID });
-      });
-    });
-  });
+router.post('/register', async (req, res) => {
+  const { username, password } = req.body;
+  console.log('Register request received:', { username });
+  try {
+    const hash = await bcrypt.hash(password, 10);
+    console.log('Password hashed successfully');
+    const result = await pool.query(
+      'INSERT INTO users (username, password, role) VALUES ($1, $2, $3) RETURNING id',
+      [username, hash, 'user']
+    );
+    console.log('User registered:', result.rows[0]);
+    res.status(201).json({ id: result.rows[0].id });
+  } catch (err) {
+    console.error('Error in /register:', err);
+    res.status(400).json({ error: 'Username already exists' });
+  }
+});
 
-  router.post('/login', (req, res) => {
-    const { username, password } = req.body;
-    console.log('Login attempt:', { username }); // Debug log
-    db.get('SELECT * FROM users WHERE username = ?', [username], (err, user) => {
-      if (err) {
-        console.error('Database error:', err.message); // Debug log
-        return res.status(500).json({ error: err.message });
-      }
-      if (!user) {
-        console.log('User not found:', username); // Debug log
-        return res.status(401).json({ error: 'Invalid credentials' });
-      }
-  
-      bcrypt.compare(password, user.password, (err, match) => {
-        if (err) {
-          console.error('Bcrypt error:', err.message); // Debug log
-          return res.status(500).json({ error: err.message });
-        }
-        if (!match) {
-          console.log('Password mismatch for user:', username); // Debug log
-          return res.status(401).json({ error: 'Invalid credentials' });
-        }
-  
-        const token = jwt.sign({ id: user.id, username: user.username }, process.env.JWT_SECRET || 'your_jwt_secret', { expiresIn: '1h' });
-        console.log('Login successful:', { username, role: user.role }); // Debug log
-        res.json({ token, role: user.role });
-      });
-    });
-  });
-  
+router.post('/login', async (req, res) => {
+  const { username, password } = req.body;
+  console.log('Login request received:', { username });
+
+  try {
+    console.log('Querying database for user');
+    const result = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+    console.log('Query result:', result.rows);
+
+    const user = result.rows[0];
+    if (!user) {
+      console.log('User not found');
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    console.log('Comparing passwords');
+    const match = await bcrypt.compare(password, user.password);
+    console.log('Password comparison result:', match);
+    if (!match) {
+      console.log('Password does not match');
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    console.log('Generating JWT token');
+    const token = jwt.sign(
+      { id: user.id, username: user.username, role: user.role },
+      process.env.JWT_SECRET || 'your_jwt_secret',
+      { expiresIn: '1h' }
+    );
+    console.log('Token generated:', token);
+
+    res.json({ token, role: user.role });
+  } catch (err) {
+    console.error('Error in /login:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

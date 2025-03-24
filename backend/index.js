@@ -1,59 +1,43 @@
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
-const config = require('./config');
+const { Pool } = require('pg');
+const authRoutes = require('./routes/auth');
+const tileRoutes = require('./routes/tiles');
+const projectRoutes = require('./routes/projects');
 
 const app = express();
-app.use(express.json());
+const port = process.env.PORT || 5000;
+
+const pool = new Pool({
+  user: 'postgres',
+  host: 'localhost',
+  database: 'roofgrid_uk',
+  password: 'password1234', // Replace with your actual PostgreSQL password
+  port: 5000,
+});
+
+// Test the database connection
+pool.connect((err, client, release) => {
+  if (err) {
+    console.error('Error connecting to PostgreSQL:', err.stack);
+    process.exit(1);
+  } else {
+    console.log('Successfully connected to PostgreSQL');
+    release();
+  }
+});
+
 app.use(cors());
+app.use(express.json());
 
-const db = new sqlite3.Database('./roofgrid.db', (err) => {
-  if (err) console.error('Database connection error:', err);
-  else console.log('Connected to SQLite database');
+authRoutes.setDatabase(pool);
+tileRoutes.setDatabase(pool);
+projectRoutes.setDatabase(pool);
+
+app.use('/api/auth', authRoutes);
+app.use('/api/tiles', tileRoutes);
+app.use('/api/projects', projectRoutes);
+
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
 });
-
-// Create tables
-db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE,
-      password TEXT,
-      role TEXT
-    )
-  `);
-  db.run(`
-    CREATE TABLE IF NOT EXISTS tiles (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT,
-      category TEXT,
-      length_mm INTEGER,
-      width_mm INTEGER,
-      effective_width_mm INTEGER,
-      headlap TEXT,
-      under_course_length_mm INTEGER,
-      gauge_min_mm INTEGER,
-      gauge_max_mm INTEGER,
-      hanging_length_mm INTEGER,
-      bonding_pattern TEXT,
-      left_hand_tile_width_mm INTEGER
-    )
-  `);
-  db.run(`
-    CREATE TABLE IF NOT EXISTS projects (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER,
-      name TEXT,
-      date TEXT,
-      details TEXT,
-      FOREIGN KEY (user_id) REFERENCES users(id)
-    )
-  `);
-});
-
-// Routes
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/tiles', require('./routes/tiles'));
-app.use('/api/projects', require('./routes/projects'));
-
-app.listen(config.PORT, () => console.log(`Server running on port ${config.PORT}`));
