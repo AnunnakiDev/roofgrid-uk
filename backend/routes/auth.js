@@ -9,6 +9,11 @@ router.setDatabase = (db) => {
   pool = db;
 };
 
+// Hardcoded admin user for development
+const ADMIN_USERNAME = 'admin';
+const ADMIN_PASSWORD = 'admin123';
+const ADMIN_ROLE = 'admin';
+
 router.post('/register', async (req, res) => {
   const { username, password } = req.body;
   console.log('Register request received:', { username });
@@ -32,6 +37,19 @@ router.post('/login', async (req, res) => {
   console.log('Login request received:', { username });
 
   try {
+    // Hardcoded admin login for development
+    if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+      console.log('Hardcoded admin login successful');
+      const token = jwt.sign(
+        { id: 1, username: ADMIN_USERNAME, role: ADMIN_ROLE },
+        process.env.JWT_SECRET,
+        { expiresIn: '1h' }
+      );
+      console.log('Token generated:', token);
+      return res.json({ token, role: ADMIN_ROLE });
+    }
+
+    // Database-based login for other users
     console.log('Querying database for user');
     const result = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
     console.log('Query result:', result.rows);
@@ -53,7 +71,7 @@ router.post('/login', async (req, res) => {
     console.log('Generating JWT token');
     const token = jwt.sign(
       { id: user.id, username: user.username, role: user.role },
-      process.env.JWT_SECRET || 'your_jwt_secret',
+      process.env.JWT_SECRET,
       { expiresIn: '1h' }
     );
     console.log('Token generated:', token);

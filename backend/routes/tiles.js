@@ -1,28 +1,25 @@
 const express = require('express');
 const router = express.Router();
-const db = require('sqlite3').verbose();
 const jwt = require('jsonwebtoken');
 
-// Assuming db is passed from index.js
-let database;
+let pool;
 router.setDatabase = (db) => {
-  database = db;
+  console.log('Setting database pool in tile routes');
+  pool = db;
 };
 
-// Middleware to authenticate token
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Access denied' });
 
-  jwt.verify(token, process.env.JWT_SECRET || 'your_jwt_secret', (err, user) => {
+  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
     if (err) return res.status(403).json({ error: 'Invalid token' });
     req.user = user;
     next();
   });
 };
 
-// Middleware to require admin role
 const requireAdmin = (req, res, next) => {
   if (req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Admin access required' });
@@ -30,28 +27,26 @@ const requireAdmin = (req, res, next) => {
   next();
 };
 
-// GET all tiles
-router.get('/', authenticateToken, requireAdmin, (req, res) => {
-  database.all('SELECT * FROM tiles', [], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
-    // Parse the headlap field for each row
-    const parsedRows = rows.map(row => {
+router.get('/', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM tiles');
+    const parsedRows = result.rows.map(row => {
       try {
-        row.headlap = JSON.parse(row.headlap);
+        row.headlap = row.headlap; // Already a JSONB object in PostgreSQL
       } catch (parseError) {
         console.error(`Failed to parse headlap for tile ${row.id}:`, parseError.message);
-        row.headlap = {}; // Fallback to an empty object
+        row.headlap = {};
       }
       return row;
     });
     res.json(parsedRows);
-  });
+  } catch (err) {
+    console.error('Error in GET /tiles:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// POST a new tile
-router.post('/', authenticateToken, requireAdmin, (req, res) => {
+router.post('/', authenticateToken, requireAdmin, async (req, res) => {
   const {
     name,
     type,
@@ -69,35 +64,32 @@ router.post('/', authenticateToken, requireAdmin, (req, res) => {
 
   const query = `
     INSERT INTO tiles (name, type, length, width, eave_tile_length, headlap, ridge_offset, batten_spacing, tile_count, chalk_marks, bond, under_course_length)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    RETURNING id
   `;
-  database.run(
-    query,
-    [
+  try {
+    const result = await pool.query(query, [
       name,
       type,
       length,
       width,
       eave_tile_length,
-      JSON.stringify(headlap), // Store headlap as a JSON string
+      headlap,
       ridge_offset,
       batten_spacing,
       tile_count,
       chalk_marks,
       bond,
       under_course_length,
-    ],
-    function (err) {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      res.status(201).json({ id: this.lastID });
-    }
-  );
+    ]);
+    res.status(201).json({ id: result.rows[0].id });
+  } catch (err) {
+    console.error('Error in POST /tiles:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// PUT (update) a tile
-router.put('/:id', authenticateToken, requireAdmin, (req, res) => {
+router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
   const { id } = req.params;
   const {
     name,
@@ -116,19 +108,19 @@ router.put('/:id', authenticateToken, requireAdmin, (req, res) => {
 
   const query = `
     UPDATE tiles
-    SET name = ?, type = ?, length = ?, width = ?, eave_tile_length = ?, headlap = ?,
-        ridge_offset = ?, batten_spacing = ?, tile_count = ?, chalk_marks = ?, bond = ?, under_course_length = ?
-    WHERE id = ?
+    SET name = $1, type = $2, length = $3, width = $4, eave_tile_length = $5, headlap = $6,
+        ridge_offset = $7, batten_spacing = $8, tile_count = $9, chalk_marks = $10, bond = $11, under_course_length = $12
+    WHERE id = $13
+    RETURNING *
   `;
-  database.run(
-    query,
-    [
+  try {
+    const result = await pool.query(query, [
       name,
       type,
       length,
       width,
       eave_tile_length,
-      JSON.stringify(headlap),
+      headlap,
       ridge_offset,
       batten_spacing,
       tile_count,
@@ -136,31 +128,29 @@ router.put('/:id', authenticateToken, requireAdmin, (req, res) => {
       bond,
       under_course_length,
       id,
-    ],
-    function (err) {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      if (this.changes === 0) {
-        return res.status(404).json({ error: 'Tile not found' });
-      }
-      res.json({ message: 'Tile updated successfully' });
+    ]);
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Tile not found' });
     }
-  );
+    res.json({ message: 'Tile updated successfully' });
+  } catch (err) {
+    console.error('Error in PUT /tiles/:id:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// DELETE a tile
-router.delete('/:id', authenticateToken, requireAdmin, (req, res) => {
+router.delete('/:id', authenticateToken, requireAdmin, async (req, res) => {
   const { id } = req.params;
-  database.run('DELETE FROM tiles WHERE id = ?', [id], function (err) {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
-    if (this.changes === 0) {
+  try {
+    const result = await pool.query('DELETE FROM tiles WHERE id = $1', [id]);
+    if (result.rowCount === 0) {
       return res.status(404).json({ error: 'Tile not found' });
     }
     res.json({ message: 'Tile deleted successfully' });
-  });
+  } catch (err) {
+    console.error('Error in DELETE /tiles/:id:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;
