@@ -1,52 +1,20 @@
 const express = require('express');
 const router = express.Router();
-const jwt = require('jsonwebtoken');
+const pool = require('../db');
+const authMiddleware = require('../middleware/auth');
 
-let pool;
-router.setDatabase = (db) => {
-  console.log('Setting database pool in tile routes');
-  pool = db;
-};
-
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'Access denied' });
-
-  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
-    if (err) return res.status(403).json({ error: 'Invalid token' });
-    req.user = user;
-    next();
-  });
-};
-
-const requireAdmin = (req, res, next) => {
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
-  next();
-};
-
-router.get('/', authenticateToken, requireAdmin, async (req, res) => {
+router.get('/', authMiddleware.authenticateToken, async (req, res) => {
+  const query = 'SELECT * FROM tiles';
   try {
-    const result = await pool.query('SELECT * FROM tiles');
-    const parsedRows = result.rows.map(row => {
-      try {
-        row.headlap = row.headlap; // Already a JSONB object in PostgreSQL
-      } catch (parseError) {
-        console.error(`Failed to parse headlap for tile ${row.id}:`, parseError.message);
-        row.headlap = {};
-      }
-      return row;
-    });
-    res.json(parsedRows);
+    const result = await pool.query(query);
+    res.json(result.rows);
   } catch (err) {
     console.error('Error in GET /tiles:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Failed to fetch tiles' });
   }
 });
 
-router.post('/', authenticateToken, requireAdmin, async (req, res) => {
+router.post('/', authMiddleware.authenticateToken, authMiddleware.requireAdmin, async (req, res) => {
   const {
     name,
     type,
@@ -85,11 +53,11 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
     res.status(201).json({ id: result.rows[0].id });
   } catch (err) {
     console.error('Error in POST /tiles:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Failed to create tile' });
   }
 });
 
-router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
+router.put('/:id', authMiddleware.authenticateToken, authMiddleware.requireAdmin, async (req, res) => {
   const { id } = req.params;
   const {
     name,
@@ -135,11 +103,11 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
     res.json({ message: 'Tile updated successfully' });
   } catch (err) {
     console.error('Error in PUT /tiles/:id:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Failed to update tile' });
   }
 });
 
-router.delete('/:id', authenticateToken, requireAdmin, async (req, res) => {
+router.delete('/:id', authMiddleware.authenticateToken, authMiddleware.requireAdmin, async (req, res) => {
   const { id } = req.params;
   try {
     const result = await pool.query('DELETE FROM tiles WHERE id = $1', [id]);
@@ -149,7 +117,7 @@ router.delete('/:id', authenticateToken, requireAdmin, async (req, res) => {
     res.json({ message: 'Tile deleted successfully' });
   } catch (err) {
     console.error('Error in DELETE /tiles/:id:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Failed to delete tile' });
   }
 });
 

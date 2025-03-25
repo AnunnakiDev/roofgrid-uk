@@ -1,27 +1,30 @@
 const jwt = require('jsonwebtoken');
 
+// Middleware to authenticate JWT token
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
+  const token = authHeader && authHeader.split(' ')[1]; // Expecting "Bearer <token>"
   if (!token) {
-    return res.status(401).json({ error: 'Access denied' });
+    return res.sendStatus(401); // Unauthorized
   }
 
-  try {
-    const verified = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = verified;
+  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.sendStatus(403); // Forbidden
+    }
+    req.user = user; // Attach decoded user to request
     next();
-  } catch (err) {
-    res.status(403).json({ error: 'Invalid token' });
-  }
+  });
 };
 
+// Middleware to check if user is admin
 const requireAdmin = (req, res, next) => {
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required' });
+  if (req.user && req.user.role === 'admin') {
+    next();
+  } else {
+    res.sendStatus(403); // Forbidden
   }
-  next();
 };
 
+// Export both functions
 module.exports = { authenticateToken, requireAdmin };

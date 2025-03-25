@@ -1,9 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db');
-const { authenticateToken } = require('../middleware/auth');
+const authMiddleware = require('../middleware/auth');
 
-router.get('/', authenticateToken, async (req, res) => {
+router.get('/', authMiddleware.authenticateToken, async (req, res) => {
   const userId = req.user.id;
   const query = 'SELECT * FROM projects WHERE user_id = $1';
   try {
@@ -23,8 +23,8 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
-router.post('/', authenticateToken, async (req, res) => {
-  const { title, input_data, results } = req.body; // Updated to match snake_case
+router.post('/', authMiddleware.authenticateToken, async (req, res) => {
+  const { title, input_data, results } = req.body;
   const userId = req.user.id;
 
   const query = `
@@ -41,7 +41,7 @@ router.post('/', authenticateToken, async (req, res) => {
   }
 });
 
-router.delete('/:id', authenticateToken, async (req, res) => {
+router.delete('/:id', authMiddleware.authenticateToken, async (req, res) => {
   const { id } = req.params;
   const userId = req.user.id;
   try {
