@@ -1,21 +1,27 @@
 const jwt = require('jsonwebtoken');
-const config = require('../config');
 
-function authenticate(req, res, next) {
-  const token = req.headers['authorization']?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'No token provided' });
-  jwt.verify(token, config.JWT_SECRET, (err, decoded) => {
-    if (err) return res.status(401).json({ error: 'Invalid token' });
-    req.user = decoded;
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Access denied' });
+  }
+
+  try {
+    const verified = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = verified;
     next();
-  });
-}
+  } catch (err) {
+    res.status(403).json({ error: 'Invalid token' });
+  }
+};
 
-function authorize(role) {
-  return (req, res, next) => {
-    if (req.user.role !== role) return res.status(403).json({ error: 'Unauthorized' });
-    next();
-  };
-}
+const requireAdmin = (req, res, next) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
+};
 
-module.exports = { authenticate, authorize };
+module.exports = { authenticateToken, requireAdmin };
